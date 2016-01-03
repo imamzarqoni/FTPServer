@@ -19,6 +19,19 @@ class FTPserver(threading.Thread):
         self.user = '' #username input
         self.login = False #status login
     
+    def ftp_user(self,arg):
+        #Autentikasi (USER dan PASS: 4.1.1)
+        self.user = arg
+        return '331 Password required for '+arg+'\r\n'
+
+    def ftp_pass(self,arg):
+        #Autentikasi (USER dan PASS: 4.1.1)
+        if self.user == user and arg == password:
+            self.login = True
+            return '230 Logged on.\r\n'
+        else:
+            return '530 Login or password incorrect!\r\n'
+    
     def ftp_pwd(self):
         #Mencetak direktori aktif (PWD: 4.1.3)
         if(self.login):
@@ -103,7 +116,51 @@ class FTPserver(threading.Thread):
                 return "550 Remove directory operation failed."
         else:
             return '530 Please log in with USER and PASS first.\r\n'
-        
+    
+    def filestat(self,arg):
+        #bagian dari ftp_list
+        st=os.stat(arg)
+        fullmode='rwxrwxrwx'
+        filemode = bin(st.st_mode)[-9:]
+        mode=''
+        for i in range(9):
+            mode += int(filemode[i]) and fullmode[i] or '-'
+        d=(os.path.isdir(arg)) and 'd' or '-'
+        ftime=time.strftime(' %b %d %H:%M ', time.gmtime(st.st_mtime + 7*3600))
+        return d+mode+' 1 owner group '+str(st.st_size)+ftime+os.path.basename(arg)+'\r\n'
+
+    def ftp_list(self,arg = ''):
+        #Mendaftar file dan direktori (LIST: 4.1.3)
+        if(self.login):
+            par = self.aktif
+            if arg != '':
+                par += '/'+arg
+            result = ''
+            if os.path.isdir(par):
+                listdir = os.listdir(par)
+                for fn in listdir:
+                    result += self.filestat(par+'/'+fn)
+            else:
+                result += self.filestat(par)
+            return result+'226 Directory send OK.\r\n'
+        else:
+            return '530 Please log in with USER and PASS first.\r\n'
+
+    def ftp_dele(self,arg):
+        #Menghapus file (DELE: 4.1.3)
+        if(self.login):
+            if(arg[0]=="/"):
+                fn = home + args
+            else:
+                fn = self.aktif + '/' + arg
+            if(os.path.isfile(fn)):
+                os.remove(fn)
+                return "250 File deleted successfully\r\n"
+            else:
+                return "550 File not found\r\n"
+        else:
+            return '530 Please log in with USER and PASS first.\r\n'
+    
 try:
     ftp = FTPserver()
     while True:
