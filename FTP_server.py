@@ -161,6 +161,21 @@ class FTPserver(threading.Thread):
         else:
             return '530 Please log in with USER and PASS first.\r\n'
     
+    def ftp_quit(self):
+        #Keluar aplikasi (QUIT: 4.1.1)
+        self.login = False
+        return "221 Goodbye."
+
+    def ftp_help():
+        #HELP: 4.1.3
+        msg = "214-The following commands are recognized.\n"
+        msg += "ABOR ACCT ALLO APPE CDUP CWD  DELE EPRT EPSV FEAT HELP LIST MDTM MKD\n"
+        msg += " MODE NLST NOOP OPTS PASS PASV PORT PWD  QUIT REIN REST RETR RMD  RNFR\n"
+        msg += " RNTO SITE SIZE SMNT STAT STOR STOU STRU SYST TYPE USER XCUP XCWD XMKD\n"
+        msg += " XPWD XRMD\n"
+        msg += "214 help OK."
+        return msg
+    
 try:
     ftp = FTPserver()
     while True:
@@ -174,3 +189,36 @@ try:
             else:
                 command = sock.recv(1024)
                 print command.split()[0]
+                if(command.split()[0].strip().upper() == "LIST"):
+                    sock.send(ftp.ftp_list().strip())
+                elif(command.split()[0].strip().upper() == "PWD"):
+                    sock.send(ftp.ftp_pwd().strip())
+                elif(command.split()[0].strip().upper() == "CWD"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_cwd(param).strip())
+                elif(command.split()[0].strip().upper() == "USER"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_user(param).strip())
+                elif(command.split()[0].strip().upper() == "PASS"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_pass(param).strip())
+                elif(command.split()[0].strip().upper() == "MKD"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_mkd(param).strip())
+                elif(command.split()[0].strip().upper() == "RMD"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_rmd(param).strip())
+                elif(command.split()[0].strip().upper() == "DELE"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_dele(param).strip())
+                elif(command.split()[0].strip().upper() == "QUIT"):
+                    sock.send(ftp.ftp_quit().strip())
+                elif(command.split()[0].strip().upper() == "HELP"):
+                    sock.send(ftp.ftp_help().strip())
+                else:
+                    sock.send("500 Unknown command.")
+
+except KeyboardInterrupt:
+    server_socket.shutdown()
+    server_socket.close()
+    sys.exit(0)
