@@ -1,30 +1,41 @@
 import socket, select, time, sys, os, threading
 
-server_address = ('localhost', 5000)
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server_socket.bind(server_address)
-server_socket.listen(10)
-
-input_socket = [server_socket]
 msg = ""
 home = 'home' #ftp directory
 user = 'progjar' #username
 password = '123' #password
 
-class FTPserver(threading.Thread):
-    def __init__(self):
+class FTPclient(threading.Thread):
+    def __init__(self,sock):
         threading.Thread.__init__(self)
         self.aktif = home #direktori aktif
         self.user = '' #username input
         self.login = False #status login
+        self.sock = sock
+
+    def run(self):
+        while True:
+            data = self.sock.recv(1024)
+            if data:
+                split = data.split()
+                command = getattr(self,split[0].strip().upper())
+                result = ''
+                if(len(split) > 1):
+                    arg = ' '.join(split[1:])
+                    result = command(arg)
+                else:
+                    result = command()
+                self.sock.send(result)
+            else:
+                self.sock.close()
+                break
     
-    def ftp_user(self,arg):
+    def USER(self,arg):
         #Autentikasi (USER dan PASS: 4.1.1)
         self.user = arg
         return '331 Password required for '+arg+'\r\n'
 
-    def ftp_pass(self,arg):
+    def PASS(self,arg):
         #Autentikasi (USER dan PASS: 4.1.1)
         if self.user == user and arg == password:
             self.login = True
@@ -32,7 +43,7 @@ class FTPserver(threading.Thread):
         else:
             return '530 Login or password incorrect!\r\n'
     
-    def ftp_pwd(self):
+    def PWD(self):
         #Mencetak direktori aktif (PWD: 4.1.3)
         if(self.login):
             dirs = os.path.relpath(self.aktif,home)
@@ -45,7 +56,7 @@ class FTPserver(threading.Thread):
         else:
             return '530 Please log in with USER and PASS first.\r\n'
 
-    def ftp_cwd(self,args):
+    def CWD(self,args):
         #Mengubah direktori aktif (CWD: 4.1.1)
         if(self.login):
             msg = "250 Directory successfully changed."
@@ -78,7 +89,7 @@ class FTPserver(threading.Thread):
         else:
             return '530 Please log in with USER and PASS first.\r\n'
 
-    def ftp_mkd(self,args):
+    def MKD(self,args):
         #Membuat direktori (MKD: 4.1.3)
         if(self.login):
             if(args[0]=="/"):
@@ -99,7 +110,7 @@ class FTPserver(threading.Thread):
         else:
             return '530 Please log in with USER and PASS first.\r\n'
             
-    def ftp_rmd(self,args):
+    def RMD(self,args):
         #Menghapus direktori (RMD: 4.1.3)
         if(self.login):
             if(args[0]=="/"):
@@ -129,7 +140,7 @@ class FTPserver(threading.Thread):
         ftime=time.strftime(' %b %d %H:%M ', time.gmtime(st.st_mtime + 7*3600))
         return d+mode+' 1 owner group '+str(st.st_size)+ftime+os.path.basename(arg)+'\r\n'
 
-    def ftp_list(self,arg = ''):
+    def LIST(self,arg = ''):
         #Mendaftar file dan direktori (LIST: 4.1.3)
         if(self.login):
             par = self.aktif
@@ -146,7 +157,7 @@ class FTPserver(threading.Thread):
         else:
             return '530 Please log in with USER and PASS first.\r\n'
 
-    def ftp_dele(self,arg):
+    def DELE(self,arg):
         #Menghapus file (DELE: 4.1.3)
         if(self.login):
             if(arg[0]=="/"):
@@ -161,7 +172,7 @@ class FTPserver(threading.Thread):
         else:
             return '530 Please log in with USER and PASS first.\r\n'
             
-    def ftp_rnfr(self, args):
+    def RNFR(self, args):
         if(self.login):
             if(args[0]=="/"):
                 self.f = home + args
@@ -175,7 +186,7 @@ class FTPserver(threading.Thread):
         else:
             return '530 Please log in with USER and PASS first.\r\n'
 
-    def ftp_rnto(self, args):
+    def RNTO(self, args):
         if(self.login):
             if(self.f==""):
                 return "RNFR required first.\r\n"
@@ -191,7 +202,7 @@ class FTPserver(threading.Thread):
         else:
             return '530 Please log in with USER and PASS first.\r\n'
             
-    def ftp_stor(self,arg):
+    def STOR(self,arg):
         if(self.login):
             fn = self.aktif+'/'+arg
             if(os.path.isfile(fn)):
@@ -215,7 +226,7 @@ class FTPserver(threading.Thread):
         else:
              return '530 Please log in with USER and PASS first.\r\n'
 
-    def ftp_retr(self,arg):
+    def RETR(self,arg):
         if(self.login):
             fn = self.aktif+'/'+arg
             if(os.path.isfile(fn)):
@@ -233,12 +244,12 @@ class FTPserver(threading.Thread):
         else:
              return '530 Please log in with USER and PASS first.\r\n'
     
-    def ftp_quit(self):
+    def QUIT(self):
         #Keluar aplikasi (QUIT: 4.1.1)
         self.login = False
         return "221 Goodbye."
 
-    def ftp_help():
+    def HELP(self):
         #HELP: 4.1.3
         msg = "214-The following commands are recognized.\n"
         msg += "ABOR ACCT ALLO APPE CDUP CWD  DELE EPRT EPSV FEAT HELP LIST MDTM MKD\n"
@@ -247,62 +258,34 @@ class FTPserver(threading.Thread):
         msg += " XPWD XRMD\n"
         msg += "214 help OK."
         return msg
-    
-try:
-    ftp = FTPserver()
-    while True:
-        read_ready, write_ready, exception = select.select(input_socket, [], [])
-        
-        for sock in read_ready:
-            if sock == server_socket:
-                client_socket, client_address = server_socket.accept()
-                input_socket.append(client_socket)        
-            
-            else:
-                command = sock.recv(1024)
-                print command.split()[0]
-                if(command.split()[0].strip().upper() == "LIST"):
-                    sock.send(ftp.ftp_list().strip())
-                elif(command.split()[0].strip().upper() == "PWD"):
-                    sock.send(ftp.ftp_pwd().strip())
-                elif(command.split()[0].strip().upper() == "CWD"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_cwd(param).strip())
-                elif(command.split()[0].strip().upper() == "USER"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_user(param).strip())
-                elif(command.split()[0].strip().upper() == "PASS"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_pass(param).strip())
-                elif(command.split()[0].strip().upper() == "MKD"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_mkd(param).strip())
-                elif(command.split()[0].strip().upper() == "RMD"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_rmd(param).strip())
-                elif(command.split()[0].strip().upper() == "DELE"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_dele(param).strip())
-                elif(command.split()[0].strip().upper() == "RNFR"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_rnfr(param).strip())
-                elif(command.split()[0].strip().upper() == "RNTO"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_rnto(param).strip())
-                elif(command.split()[0].strip().upper() == "STOR"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_stor(param).strip())
-                elif(command.split()[0].strip().upper() == "RETR"):
-                    param = command.split()[1].strip()
-                    sock.send(ftp.ftp_retr(param).strip())
-                elif(command.split()[0].strip().upper() == "QUIT"):
-                    sock.send(ftp.ftp_quit().strip())
-                elif(command.split()[0].strip().upper() == "HELP"):
-                    sock.send(ftp.ftp_help().strip())
-                else:
-                    sock.send("500 Unknown command.")
 
-except KeyboardInterrupt:
-    server_socket.shutdown()
-    server_socket.close()
-    sys.exit(0)
+
+class FTPserver(threading.Thread):
+    def run(self):        
+        server_address = ('localhost', 5000)
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind(server_address)
+        server_socket.listen(10)
+
+        input_socket = [server_socket]
+        threads = []
+
+        try:
+            while True:
+                read_ready, write_ready, exception = select.select(input_socket, [], [])
+                
+                for sock in read_ready:
+                    if sock == server_socket:
+                        client_socket, client_address = server_socket.accept()
+                        t = FTPclient(client_socket)
+                        t.start()
+                        threads.append(t)
+        
+        except KeyboardInterrupt:
+            server_socket.shutdown()
+            server_socket.close()
+            sys.exit(0)
+
+ftp = FTPserver()
+ftp.start()
