@@ -160,6 +160,78 @@ class FTPserver(threading.Thread):
                 return "550 File not found\r\n"
         else:
             return '530 Please log in with USER and PASS first.\r\n'
+            
+    def ftp_rnfr(self, args):
+        if(self.login):
+            if(args[0]=="/"):
+                self.f = home + args
+            else:
+                self.f = self.aktif + '/' + args
+            if(os.path.isfile(self.f)):
+                return "350 Ready for RNTO.\r\n"
+            else:
+                self.f = ""
+                return "550 RNFR command failed\r\n"
+        else:
+            return '530 Please log in with USER and PASS first.\r\n'
+
+    def ftp_rnto(self, args):
+        if(self.login):
+            if(self.f==""):
+                return "RNFR required first.\r\n"
+            else:
+                new_f = ""
+                if(args[0]=="/"):
+                    new_f = home + args
+                else:
+                    new_f = self.aktif + '/' + args
+                os.rename(self.f,new_f)
+                self.f == ""
+                return "250 Rename succesful.\r\n"
+        else:
+            return '530 Please log in with USER and PASS first.\r\n'
+            
+    def ftp_stor(self,arg):
+        if(self.login):
+            fn = self.aktif+'/'+arg
+            if(os.path.isfile(fn)):
+                return "553 File already exist\r\n"
+            else:
+                data=''
+                total=''
+                i=0
+                iki=sock.recv(1024)
+                size=int(iki.split('/r/n/r/n')[0])
+                total=iki.split('/r/n/r/n')[1]
+                size=size-len(iki.split('/r/n/r/n')[1])
+                while i < size:
+                    data = sock.recv(1024)
+                    total=total+data
+                    i=i+1024
+                f = open(fn,'wb')
+                f.write(total)
+                f.close()
+                return '200 File' + arg.split('/')[-1:] + 'uploaded.\r\n'
+        else:
+             return '530 Please log in with USER and PASS first.\r\n'
+
+    def ftp_retr(self,arg):
+        if(self.login):
+            fn = self.aktif+'/'+arg
+            if(os.path.isfile(fn)):
+                f = open(filename,'rb')
+                f.seek(0,2)
+                size = f.tell()
+                data = str(size)+'/r/n/r/n'
+                f.seek(0)
+                data = data+f.read()
+                sock.send(data)
+                f.close()
+                return '200 File' + arg.split('/')[-1:] + 'downloaded.\r\n'
+            else:
+                return "550 File not found\r\n"
+        else:
+             return '530 Please log in with USER and PASS first.\r\n'
     
     def ftp_quit(self):
         #Keluar aplikasi (QUIT: 4.1.1)
@@ -211,6 +283,18 @@ try:
                 elif(command.split()[0].strip().upper() == "DELE"):
                     param = command.split()[1].strip()
                     sock.send(ftp.ftp_dele(param).strip())
+                elif(command.split()[0].strip().upper() == "RNFR"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_rnfr(param).strip())
+                elif(command.split()[0].strip().upper() == "RNTO"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_rnto(param).strip())
+                elif(command.split()[0].strip().upper() == "STOR"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_stor(param).strip())
+                elif(command.split()[0].strip().upper() == "RETR"):
+                    param = command.split()[1].strip()
+                    sock.send(ftp.ftp_retr(param).strip())
                 elif(command.split()[0].strip().upper() == "QUIT"):
                     sock.send(ftp.ftp_quit().strip())
                 elif(command.split()[0].strip().upper() == "HELP"):
