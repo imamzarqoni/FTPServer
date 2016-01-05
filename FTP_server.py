@@ -269,7 +269,7 @@ class FTPclient(threading.Thread):
 
 class FTPserver(threading.Thread):
     def run(self):        
-        server_address = ('localhost', 5000)
+        server_address = (socket.gethostname(), 5000)
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(server_address)
