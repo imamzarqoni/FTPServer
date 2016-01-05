@@ -12,20 +12,25 @@ class FTPclient(threading.Thread):
         self.user = '' #username input
         self.login = False #status login
         self.sock = sock
+        self.f = ''
 
     def run(self):
+        self.sock.send('220 FTPserver.\r\n')
         while True:
             data = self.sock.recv(1024)
             if data:
                 split = data.split()
-                command = getattr(self,split[0].strip().upper())
-                result = ''
-                if(len(split) > 1):
-                    arg = ' '.join(split[1:])
-                    result = command(arg)
+                if hasattr(self,split[0].strip().upper()):
+                    command = getattr(self,split[0].strip().upper())
+                    result = ''
+                    if(len(split) > 1):
+                        arg = ' '.join(split[1:])
+                        result = command(arg)
+                    else:
+                        result = command()
+                    self.sock.send(result)
                 else:
-                    result = command()
-                self.sock.send(result)
+                    self.sock.send('202 Command not implemented.\r\n')
             else:
                 self.sock.close()
                 break
@@ -59,7 +64,7 @@ class FTPclient(threading.Thread):
     def CWD(self,args):
         #Mengubah direktori aktif (CWD: 4.1.1)
         if(self.login):
-            msg = "250 Directory successfully changed."
+            msg = "250 Directory successfully changed.\r\n"
             if(args == ".."):
                 if self.aktif != home:
                     self.aktif = "/".join(self.aktif.split("/")[:-1])
@@ -75,7 +80,7 @@ class FTPclient(threading.Thread):
                     if(os.path.isdir(self.aktif)):
                         return msg
                     else:
-                        return "550 Failed to change directory."
+                        return "550 Failed to change directory.\r\n"
                 else:
                     if(args[0]=="/"):
                         self.aktif = home + args
@@ -85,7 +90,7 @@ class FTPclient(threading.Thread):
                     if(os.path.isdir(self.aktif)):
                         return msg
                     else:
-                        return "550 Failed to change directory."
+                        return "550 Failed to change directory.\r\n"
         else:
             return '530 Please log in with USER and PASS first.\r\n'
 
@@ -97,7 +102,7 @@ class FTPclient(threading.Thread):
             else:
                 new_dir = self.aktif + "/" + args
             if(os.path.isdir(new_dir)):
-                return "550 Create directory operation failed."
+                return "550 Create directory operation failed.\r\n"
             else:
                 os.makedirs(new_dir)
                 dirs = os.path.relpath(new_dir,home)
@@ -105,7 +110,7 @@ class FTPclient(threading.Thread):
                     dirs = "/"
                 else:
                     dirs = "/" + dirs
-                msg = "257 \"" + dirs + "\" created"
+                msg = "257 \"" + dirs + "\" created.\r\n"
                 return msg
         else:
             return '530 Please log in with USER and PASS first.\r\n'
@@ -120,11 +125,11 @@ class FTPclient(threading.Thread):
             if(os.path.isdir(new_dir)):
                 if not os.listdir(new_dir):
                     os.rmdir(new_dir)
-                    return "250 Remove directory operation successful."
+                    return "250 Remove directory operation successful.\r\n"
                 else:
-                    return "550 Remove directory operation failed."
+                    return "550 Remove directory operation failed.\r\n"
             else:
-                return "550 Remove directory operation failed."
+                return "550 Remove directory operation failed.\r\n"
         else:
             return '530 Please log in with USER and PASS first.\r\n'
     
@@ -151,9 +156,13 @@ class FTPclient(threading.Thread):
                 listdir = os.listdir(par)
                 for fn in listdir:
                     result += self.filestat(par+'/'+fn)
-            else:
+                result += '226 Directory send OK.\r\n'
+            elif os.path.isfile(par):
                 result += self.filestat(par)
-            return result+'226 Directory send OK.\r\n'
+                result += '226 Directory send OK.\r\n'
+            else:
+                result += '500 Directory or file not found.\r\n'
+            return result
         else:
             return '530 Please log in with USER and PASS first.\r\n'
 
@@ -189,7 +198,7 @@ class FTPclient(threading.Thread):
     def RNTO(self, args):
         if(self.login):
             if(self.f==""):
-                return "RNFR required first.\r\n"
+                return "550 RNFR required first.\r\n"
             else:
                 new_f = ""
                 if(args[0]=="/"):
@@ -208,21 +217,20 @@ class FTPclient(threading.Thread):
             if(os.path.isfile(fn)):
                 return "553 File already exist\r\n"
             else:
-                data=''
-                total=''
                 i=0
-                iki=sock.recv(1024)
-                size=int(iki.split('/r/n/r/n')[0])
-                total=iki.split('/r/n/r/n')[1]
-                size=size-len(iki.split('/r/n/r/n')[1])
+                iki=self.sock.recv(1024)
+                iki=iki.split('/r/n/r/n')
+                size=int(iki[0])
+                total='/r/n/r/n'.join(iki[1:])
+                size=size-len(total)
                 while i < size:
-                    data = sock.recv(1024)
+                    data = self.sock.recv(1024)
                     total=total+data
                     i=i+1024
                 f = open(fn,'wb')
                 f.write(total)
                 f.close()
-                return '200 File' + arg.split('/')[-1:] + 'uploaded.\r\n'
+                return '200 File ' + arg.split('/')[-1] + ' uploaded.\r\n'
         else:
              return '530 Please log in with USER and PASS first.\r\n'
 
@@ -230,24 +238,23 @@ class FTPclient(threading.Thread):
         if(self.login):
             fn = self.aktif+'/'+arg
             if(os.path.isfile(fn)):
-                f = open(filename,'rb')
-                f.seek(0,2)
-                size = f.tell()
+                size = os.stat(fn).st_size
+                f = open(fn,'rb')
                 data = str(size)+'/r/n/r/n'
-                f.seek(0)
                 data = data+f.read()
-                sock.send(data)
+                self.sock.send(data)
                 f.close()
-                return '200 File' + arg.split('/')[-1:] + 'downloaded.\r\n'
+                self.sock.recv(1024)
+                return '200 File ' + arg.split('/')[-1] + ' downloaded.\r\n'
             else:
-                return "550 File not found\r\n"
+                return "500 File not found\r\n"
         else:
              return '530 Please log in with USER and PASS first.\r\n'
     
     def QUIT(self):
         #Keluar aplikasi (QUIT: 4.1.1)
         self.login = False
-        return "221 Goodbye."
+        return "221 Goodbye.\r\n"
 
     def HELP(self):
         #HELP: 4.1.3
@@ -256,7 +263,7 @@ class FTPclient(threading.Thread):
         msg += " MODE NLST NOOP OPTS PASS PASV PORT PWD  QUIT REIN REST RETR RMD  RNFR\n"
         msg += " RNTO SITE SIZE SMNT STAT STOR STOU STRU SYST TYPE USER XCUP XCWD XMKD\n"
         msg += " XPWD XRMD\n"
-        msg += "214 help OK."
+        msg += "214 help OK.\r\n"
         return msg
 
 
@@ -278,6 +285,7 @@ class FTPserver(threading.Thread):
                 for sock in read_ready:
                     if sock == server_socket:
                         client_socket, client_address = server_socket.accept()
+						print "connected :", client_socket.getpeername()
                         t = FTPclient(client_socket)
                         t.start()
                         threads.append(t)
